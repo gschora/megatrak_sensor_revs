@@ -19,14 +19,19 @@
 // RH_RF69 rf69(slave_select_pin, interrupt_pin);
 RH_RF69 rf69(15, 14);
 
-#define CLIENT_ADDRESS	3
+#define CLIENT_ADDRESS	2
 #define SERVER_ADDRESS	1
+
+#define SEND_INTERVALL 300
 
 RHDatagram manager(rf69, CLIENT_ADDRESS);
 
 //Display
 // Adafruit_AlphaNum4 alpha4 = Adafruit_AlphaNum4();
 
+uint8_t buf[RH_RF69_MAX_MESSAGE_LEN];
+
+unsigned long time = 0;
 
 void setup()
 {
@@ -49,40 +54,45 @@ void setup()
 }
 
 
-uint8_t buf[RH_RF69_MAX_MESSAGE_LEN];
+
+uint8_t from;
 uint16_t count = 0;
 
 uint8_t data[2];
 
-
 void loop() {
 
-	data[0] = lowByte(count);
-	data[1] = highByte(count);
-	count++;
-
-	if (!manager.sendto(data, sizeof(data), SERVER_ADDRESS))
-		Serial.println("sendto failed");
-
-	// if (manager.available()) {
-	// 	// Now wait for a reply
-
-	// 	uint8_t buf[RH_RF69_MAX_MESSAGE_LEN];
-	// 	uint8_t len = sizeof(buf);
-	// 	uint8_t from;
-
-	// 	// Should be a reply message for us now
-	// 	if (manager.recvfrom(buf, &len, &from)) {
-	// 		Serial.print("got reply: ");
-	// 		Serial.print(from, DEC);
-	// 		Serial.print(": ");
-	// 		Serial.println((char*)buf);
-	// 	} else {
-	// 		Serial.println("recv failed");
-	// 	}
-	// }	else {
-	// 	Serial.println("No reply, is rf69_server running?");
-	// }
-	delay(500);
+	if(millis()-time>SEND_INTERVALL){
+		data[0] = lowByte(count);
+		data[1] = highByte(count);
+		
+		sendMsg(data,SERVER_ADDRESS);
+		
+		count++;
+		time = millis();
+	}
 }
 
+void chkMsg(){
+	if (manager.available()) {
+		uint8_t len = sizeof(buf);
+		uint8_t from;
+
+		if (manager.recvfrom(buf, &len, &from)) {
+			Serial.print("got reply: ");
+			Serial.print(from, DEC);
+			Serial.print(": ");
+			Serial.println((char*)buf);
+		} else {
+			Serial.println("recv failed");
+		}
+	}
+}
+
+void sendMsg(uint8_t data[], uint8_t rcvr){
+	// Send a reply back to the originator client
+	if (!manager.sendto(data, sizeof(data), rcvr)){
+   		Serial.println("sendto failed");
+   	}
+       	manager.waitPacketSent(); //wichtig!!!
+}

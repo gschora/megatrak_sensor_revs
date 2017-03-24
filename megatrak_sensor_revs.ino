@@ -6,6 +6,10 @@
 #include <Adafruit_GFX.h>
 #include "Adafruit_LEDBackpack.h"
 
+#define RESTART_ADDR       0xE000ED0C
+#define READ_RESTART()     (*(volatile uint32_t *)RESTART_ADDR)
+#define WRITE_RESTART(val) ((*(volatile uint32_t *)RESTART_ADDR) = (val))
+
 #define EEPROM_NODE_ADDRESS 0
 #define EEPROM_SERVER_ADDRESS 1
 uint8_t SERVER_ADDRESS = EEPROM.read(EEPROM_SERVER_ADDRESS);
@@ -61,6 +65,7 @@ void loop() {
 		data[2] = highByte(count);
 		//Serial.println((char*)data);
 		sendMsg((char*)data, SERVER_ADDRESS);
+		//Serial.println(count);
 
 		count++;
 		time = millis();
@@ -71,6 +76,7 @@ void chkMsg() {
 	if (manager.available()) {
 		uint8_t len = sizeof(msg);
 		uint8_t from;
+		memset(msg, 0, sizeof(msg)); //clearing the msg array IMPORTANT!!!!! otherwise old values from previous messages stay in there!!!
 
 		if (manager.recvfrom(msg, &len, &from)) {
 			if (from == SERVER_ADDRESS) {
@@ -95,9 +101,30 @@ void sendMsg(char* data, uint8_t rcvr) {
 	manager.waitPacketSent(); //wichtig!!!
 }
 
+void sendOKMsg() {
+	char* ok = "iok";
+	sendMsg(ok,SERVER_ADDRESS);
+}
+
 void parseSrvCmd() {
+	
 	Serial.print("msg from server: ");
 	Serial.println((char*)msg);
+	//Serial.println(sizeof(msg));
+	if (msg[0] == 's') {
+		if (msg[1] == 'n' && msg[2] == 'a') {
+			uint8_t addr[3] = {};
+			addr[0] = msg[3];
+			addr[1] = msg[4];
+			addr[2] = msg[5];
+
+			if (atoi((char*)addr) < 255) {
+				sendOKMsg();
+				setEEPROMNodeAddress(atoi((char*)addr));
+			}
+					
+		}
+	}
 
 }
 //###################################################
@@ -109,6 +136,7 @@ void setEEPROMNodeAddress(uint8_t address) {
 	EEPROM.write(EEPROM_NODE_ADDRESS, address);
 	NODE_ADDRESS = address;
 	Serial.println("done!");
+	WRITE_RESTART(0x5FA0004);
 }
 uint8_t getEEPROMNodeAddress() {
 	return EEPROM.read(EEPROM_NODE_ADDRESS);

@@ -88,7 +88,7 @@ void setup() {
 	cmd.addCommand("srp", sc_setRevPrecision);
 	cmd.addCommand("srm", sc_setRevMode);
 	cmd.addCommand("srdia", sc_setRevDiameter);
-	cmd.addCommand("si", sc_setInterval);
+	cmd.addCommand("sni", sc_setInterval);
 	//###################################################
 
 	if (!manager.init())

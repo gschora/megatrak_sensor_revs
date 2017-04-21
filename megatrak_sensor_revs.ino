@@ -24,7 +24,7 @@
 #define EEPROM_DIAM1_ADDRESS 11
 #define EEPROM_DIAM2_ADDRESS 12
 #define EEPROM_DIAM3_ADDRESS 13
-
+#define EEPROM_SEND_INTERVAL_ADDRESS 14
 
 uint8_t SERVER_ADDRESS = EEPROM.read(EEPROM_SERVER_ADDRESS);
 uint8_t NODE_ADDRESS = EEPROM.read(EEPROM_NODE_ADDRESS);
@@ -35,7 +35,8 @@ RH_RF69 rf69(15, 14);
 RHDatagram manager(rf69, NODE_ADDRESS);
 uint8_t msg[RH_RF69_MAX_MESSAGE_LEN];
 
-#define SEND_INTERVALL 1000
+
+uint8_t SEND_INTERVAL = EEPROM.read(EEPROM_SEND_INTERVAL_ADDRESS);
 
 unsigned long time = 0;
 
@@ -45,7 +46,7 @@ unsigned long revTimeNew1 = 0;
 unsigned long revTimeDiff1 = 0;
 uint16_t revs1 = 0;
 uint8_t divider1 = EEPROM.read(EEPROM_DIV1_ADDRESS); //Divider for one revision
-uint8_t precision1 = EEPROM.read(EEPROM_PREC1_ADDRESS); //precision used for calculating revs per min
+uint16_t precision1 = pow(10, EEPROM.read(EEPROM_PREC1_ADDRESS)); //precision used for calculating revs per min
 uint8_t revMode1 = EEPROM.read(EEPROM_MOD1_ADDRESS); // Mode 0 = umin, 1 = kmh
 uint8_t diam1 = EEPROM.read(EEPROM_DIAM1_ADDRESS);
 float speed1 = 0.0;
@@ -56,7 +57,7 @@ unsigned long revTimeNew2 = 0;
 unsigned long revTimeDiff2 = 0;
 uint16_t revs2 = 0;
 uint8_t divider2 = EEPROM.read(EEPROM_DIV2_ADDRESS); //Divider for one revision
-uint8_t precision2 = EEPROM.read(EEPROM_PREC2_ADDRESS); //precision used for calculating revs per min
+uint16_t precision2 = pow(10, EEPROM.read(EEPROM_PREC2_ADDRESS)); //precision used for calculating revs per min
 uint8_t revMode2 = EEPROM.read(EEPROM_MOD2_ADDRESS); // Mode 0 = umin, 1 = kmh
 uint8_t diam2 = EEPROM.read(EEPROM_DIAM2_ADDRESS);
 float speed2 = 0.0;
@@ -67,7 +68,7 @@ unsigned long revTimeNew3 = 0;
 unsigned long revTimeDiff3 = 0;
 uint16_t revs3 = 0;
 uint8_t divider3 = EEPROM.read(EEPROM_DIV3_ADDRESS); //Divider for one revision
-uint8_t precision3 = EEPROM.read(EEPROM_PREC3_ADDRESS); //precision used for calculating revs per min
+uint16_t precision3 = pow(10, EEPROM.read(EEPROM_PREC3_ADDRESS)); //precision used for calculating revs per min
 uint8_t revMode3 = EEPROM.read(EEPROM_MOD3_ADDRESS); // Mode 0 = umin, 1 = kmh
 uint8_t diam3 = EEPROM.read(EEPROM_DIAM3_ADDRESS);
 float speed3 = 0.0;
@@ -87,6 +88,7 @@ void setup() {
 	cmd.addCommand("srp", sc_setRevPrecision);
 	cmd.addCommand("srm", sc_setRevMode);
 	cmd.addCommand("srdia", sc_setRevDiameter);
+	cmd.addCommand("si", sc_setInterval);
 	//###################################################
 
 	if (!manager.init())
@@ -117,7 +119,7 @@ void loop() {
 	cmd.readSerial();
 	chkMsg();
 
-	if (millis() - time > SEND_INTERVALL) {
+	if (millis() - time > 100*SEND_INTERVAL) {
 		data[0] = 'u';
 		data[1] = lowByte(count);
 		data[2] = highByte(count);
@@ -181,11 +183,56 @@ void parseSrvCmd() {
 				setEEPROMNodeAddress(atoi((char*)addr));
 			}
 		}
-//TODO command for setting server address
-		//TODO command for setting mode
-		//todo command for setting devider
-	}
+		else if (msg[1] == 'r') {
+			if (msg[2] == 'p') {
+				// set precision
+				setEEPROMRevPrecision(msg[3]-'0', msg[4]-'0');  // -'0' ist trick um aus ascii-zahl einen int zu machen
+				sendOKMsg();
+				
+			} else if (msg[2] == 'm') {
+				// set revmode
+				setEEPROMRevMode(msg[3] - '0', msg[4] - '0');  // -'0' ist trick um aus ascii-zahl einen int zu machen
+				sendOKMsg();
 
+			}else if (msg[2] == 'd') {
+				if (msg[3] == 'i' && msg[4] == 'a') {
+					uint8_t revNr = msg[5] - '0';
+					//set diameter
+					uint8_t val[3] = {};
+					val[0] = msg[6];
+					val[1] = msg[7];
+					val[2] = msg[8];
+
+					sendOKMsg();
+					setEEPROMRevLength(revNr,atoi((char*)val));
+					
+				}
+				else {
+					//set divider
+					uint8_t revNr = msg[3] - '0';
+					//set diameter
+					uint8_t val[3] = {};
+					val[0] = msg[4];
+					val[1] = msg[5];
+					val[2] = msg[6];
+
+					setEEPROMRevDivider(revNr, atoi((char*)val));  // -'0' ist trick um aus ascii-zahl einen int zu machen
+					sendOKMsg();
+				}
+			}
+		}
+		else if (msg[1] == 'n' && msg[2] == 'i') {
+			//set send interval
+			uint8_t val[3] = {};
+			val[0] = msg[3];
+			val[1] = msg[4];
+			val[2] = msg[5];
+			if (atoi((char*)val) < 255) {
+				setEEPROMSendInterval(atoi((char*)val));  // -'0' ist trick um aus ascii-zahl einen int zu machen
+				sendOKMsg();
+			}
+		}
+	}
 }
 //###################################################
 void setEEPROMNodeAddress(uint8_t address) {
@@ -340,7 +387,7 @@ void sc_setRevDiameter() {
 	}
 	setEEPROMRevLength(revNr, len); 
 }
-void setEEPROMRevLength(uint8_t revNr, uint8_t dia) {
+void setEEPROMRevLength(uint8_t revNr, uint16_t dia) {
 	uint16_t olen;
 	Serial.print("setting revdiameter ");
 	switch (revNr) {
@@ -465,7 +512,7 @@ void setEEPROMRevPrecision(uint8_t revNr, uint8_t prec) {
 		Serial.print(" to ");
 		Serial.println(prec);
 		EEPROM.write(EEPROM_PREC1_ADDRESS, prec);
-		precision1 = prec;
+		precision1 = pow(10, prec);
 		break;
 	case 2:
 		Serial.print(revNr);
@@ -474,7 +521,7 @@ void setEEPROMRevPrecision(uint8_t revNr, uint8_t prec) {
 		Serial.print(" to ");
 		Serial.println(prec);
 		EEPROM.write(EEPROM_PREC2_ADDRESS, prec);
-		precision2 = prec;
+		precision2 = pow(10, prec);
 		break;
 	case 3:
 		Serial.print(revNr);
@@ -483,7 +530,7 @@ void setEEPROMRevPrecision(uint8_t revNr, uint8_t prec) {
 		Serial.print(" to ");
 		Serial.println(prec);
 		EEPROM.write(EEPROM_PREC3_ADDRESS, prec);
-		precision3 = prec;
+		precision3 = pow(10, prec);
 		break;
 	}
 	Serial.println("done!");
@@ -545,6 +592,29 @@ void setEEPROMRevDivider(uint8_t revNr, uint8_t div) {
 	Serial.println("done!");
 }
 
+void sc_setInterval() {
+	char *arg;
+	uint16_t iv;
+	arg = cmd.next();
+	if (arg != NULL) {
+		iv = atoi(arg);    // Converts a char string to an integer
+	}
+	else {
+		Serial.println("si - interval is missing! aborting...");
+		return;
+	}
+	setEEPROMSendInterval(iv);
+}
+void setEEPROMSendInterval(uint8_t iv) {
+	Serial.print("setting interval from ");
+	Serial.print(EEPROM.read(EEPROM_SEND_INTERVAL_ADDRESS)*100, DEC);
+	Serial.print(" to ");
+	Serial.println(iv * 100);
+	SEND_INTERVAL = iv;
+	EEPROM.write(EEPROM_SEND_INTERVAL_ADDRESS, iv);
+	Serial.println("...done");
+
+}
 void countRevs1() {
 	revTimeNew1 = millis();
 	revTimeDiff1 = revTimeNew1 - revTimeOld1;

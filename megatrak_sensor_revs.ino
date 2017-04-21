@@ -48,6 +48,7 @@ uint8_t divider1 = EEPROM.read(EEPROM_DIV1_ADDRESS); //Divider for one revision
 uint8_t precision1 = EEPROM.read(EEPROM_PREC1_ADDRESS); //precision used for calculating revs per min
 uint8_t revMode1 = EEPROM.read(EEPROM_MOD1_ADDRESS); // Mode 0 = umin, 1 = kmh
 uint8_t diam1 = EEPROM.read(EEPROM_DIAM1_ADDRESS);
+float speed1 = 0.0;
 
 const uint8_t revPin2 = 3;
 unsigned long revTimeOld2 = 0;
@@ -58,6 +59,7 @@ uint8_t divider2 = EEPROM.read(EEPROM_DIV2_ADDRESS); //Divider for one revision
 uint8_t precision2 = EEPROM.read(EEPROM_PREC2_ADDRESS); //precision used for calculating revs per min
 uint8_t revMode2 = EEPROM.read(EEPROM_MOD2_ADDRESS); // Mode 0 = umin, 1 = kmh
 uint8_t diam2 = EEPROM.read(EEPROM_DIAM2_ADDRESS);
+float speed2 = 0.0;
 
 const uint8_t revPin3 = 4;
 unsigned long revTimeOld3 = 0;
@@ -68,6 +70,7 @@ uint8_t divider3 = EEPROM.read(EEPROM_DIV3_ADDRESS); //Divider for one revision
 uint8_t precision3 = EEPROM.read(EEPROM_PREC3_ADDRESS); //precision used for calculating revs per min
 uint8_t revMode3 = EEPROM.read(EEPROM_MOD3_ADDRESS); // Mode 0 = umin, 1 = kmh
 uint8_t diam3 = EEPROM.read(EEPROM_DIAM3_ADDRESS);
+float speed3 = 0.0;
 
 void setup() {
 	Serial.begin(57600);
@@ -545,27 +548,62 @@ void setEEPROMRevDivider(uint8_t revNr, uint8_t div) {
 void countRevs1() {
 	revTimeNew1 = millis();
 	revTimeDiff1 = revTimeNew1 - revTimeOld1;
-	revs1 = 1000 * 60 / revTimeDiff1 / divider1 / precision1 * precision1;
+	float s = 0.0;
+	if (revMode1) {
+		revs1 = 1000 * 60 / revTimeDiff1 / divider1;
+		s = revs1 * diam1 *3.142 / 100 * 60; //m pro h
+		if (s > 1000) {
+			speed1 = s / 1000;
+		}
+		else {
+			speed1 = (int)s / precision1* precision1;
+		}
+	}
+	else {
+		revs1 = 1000 * 60 / revTimeDiff1 / divider1 / precision1 * precision1;
+		speed1 = revs1;
+	}
 	revTimeOld1 = revTimeNew1;
-
-	Serial.print("revs1: ");
-	Serial.println(revs1);
 }
 
 void countRevs2() {
 	revTimeNew2 = millis();
 	revTimeDiff2 = revTimeNew2 - revTimeOld2;
-	revs2 = 1000 * 60 / revTimeDiff2 / divider2 / precision2 * precision2;
+	float s = 0.0;
+	if (revMode2) {
+		revs2 = 1000 * 60 / revTimeDiff2 / divider2;
+		s = revs2 * diam2 *3.142 / 100 * 60; //m pro h
+		if (s > 1000) {
+			speed2 = s / 1000;
+		}
+		else {
+			speed2 = (int)s / precision2* precision2;
+		}
+	}
+	else {
+		revs2 = 1000 * 60 / revTimeDiff2 / divider2 / precision2 * precision2;
+		speed2 = revs2;
+	}
 	revTimeOld2 = revTimeNew2;
-	Serial.print("revs2: ");
-	Serial.println(revs2);
 }
 
 void countRevs3() {
 	revTimeNew3 = millis();
 	revTimeDiff3 = revTimeNew3 - revTimeOld3;
-	revs3 = 1000 * 60 / revTimeDiff3 / divider3 / precision3 * precision3;
+	float s = 0.0;
+	if (revMode3) {
+		revs3 = 1000 * 60 / revTimeDiff3 / divider3;
+		s = revs3 * diam3 *3.142 / 100 * 60; //m pro h
+		if (s > 1000) {
+			speed3 = s / 1000;
+		}
+		else {
+			speed3 = (int)s / precision3* precision3;
+		}
+	}
+	else {
+		revs3 = 1000 * 60 / revTimeDiff3 / divider3 / precision3 * precision3;
+		speed3 = revs3;
+	}
 	revTimeOld3 = revTimeNew3;
-	Serial.print("revs3: ");
-	Serial.println(revs3);
 }

@@ -26,6 +26,8 @@
 #define EEPROM_DIAM3_ADDRESS 13
 #define EEPROM_SEND_INTERVAL_ADDRESS 14
 
+bool DEBUG = 0;
+
 uint8_t SERVER_ADDRESS = EEPROM.read(EEPROM_SERVER_ADDRESS);
 uint8_t NODE_ADDRESS = EEPROM.read(EEPROM_NODE_ADDRESS);
 
@@ -49,7 +51,11 @@ uint8_t divider1 = EEPROM.read(EEPROM_DIV1_ADDRESS); //Divider for one revision
 uint16_t precision1 = pow(10, EEPROM.read(EEPROM_PREC1_ADDRESS)); //precision used for calculating revs per min
 uint8_t revMode1 = EEPROM.read(EEPROM_MOD1_ADDRESS); // Mode 0 = umin, 1 = kmh
 uint8_t diam1 = EEPROM.read(EEPROM_DIAM1_ADDRESS);
-float speed1 = 0.0;
+//float speed1 = 0.0;
+union sp{ // see http://forum.arduino.cc/index.php?topic=246654.msg1763405#msg1763405
+	float f = 0.0;
+	unsigned char b[4];
+} speed1;
 
 const uint8_t revPin2 = 3;
 unsigned long revTimeOld2 = 0;
@@ -60,7 +66,8 @@ uint8_t divider2 = EEPROM.read(EEPROM_DIV2_ADDRESS); //Divider for one revision
 uint16_t precision2 = pow(10, EEPROM.read(EEPROM_PREC2_ADDRESS)); //precision used for calculating revs per min
 uint8_t revMode2 = EEPROM.read(EEPROM_MOD2_ADDRESS); // Mode 0 = umin, 1 = kmh
 uint8_t diam2 = EEPROM.read(EEPROM_DIAM2_ADDRESS);
-float speed2 = 0.0;
+//float speed2 = 0.0;
+union sp speed2; //https://forum.arduino.cc/index.php?topic=462747.msg3176384#msg3176384
 
 const uint8_t revPin3 = 4;
 unsigned long revTimeOld3 = 0;
@@ -71,7 +78,8 @@ uint8_t divider3 = EEPROM.read(EEPROM_DIV3_ADDRESS); //Divider for one revision
 uint16_t precision3 = pow(10, EEPROM.read(EEPROM_PREC3_ADDRESS)); //precision used for calculating revs per min
 uint8_t revMode3 = EEPROM.read(EEPROM_MOD3_ADDRESS); // Mode 0 = umin, 1 = kmh
 uint8_t diam3 = EEPROM.read(EEPROM_DIAM3_ADDRESS);
-float speed3 = 0.0;
+union sp speed3; //https://forum.arduino.cc/index.php?topic=462747.msg3176384#msg3176384
+
 
 void setup() {
 	Serial.begin(57600);
@@ -80,6 +88,7 @@ void setup() {
 	Serial.println(NODE_ADDRESS);
 
 	//###################################################
+	cmd.setDefaultHandler(unrecognized);
 	cmd.addCommand("sna", sc_setNodeAddress); //set node address
 	cmd.addCommand("ssa", sc_setServerAddress); //set server address
 	cmd.addCommand("cfg", sc_printCfg); //print the current config
@@ -89,6 +98,7 @@ void setup() {
 	cmd.addCommand("srm", sc_setRevMode);
 	cmd.addCommand("srdia", sc_setRevDiameter);
 	cmd.addCommand("sni", sc_setInterval);
+	cmd.addCommand("snd", sc_setDebug);
 	//###################################################
 
 	if (!manager.init())
@@ -111,24 +121,76 @@ void setup() {
 }
 
 uint8_t from;
-uint16_t count = 0;
+float count = 0.0;
 
-uint8_t data[3];
+uint8_t data[15];
 
 void loop() {
 	cmd.readSerial();
 	chkMsg();
-
+	if(DEBUG){
+		if (millis() - time > 100*SEND_INTERVAL) {
+			sendOKMsg();
+			time = millis();
+		}
+	} else {
 	if (millis() - time > 100*SEND_INTERVAL) {
-		data[0] = 'u';
-		data[1] = lowByte(count);
-		data[2] = highByte(count);
-		//Serial.println((char*)data);
-		sendMsg((char*)data, SERVER_ADDRESS);
-		//Serial.println(count);
+		switch (revMode1) {
+		case 0:
+			data[0] = 'u';
+			break;
+		case 1:
+			data[0] = 's';
+			break;
+		}
+		//Serial.println(speed1.val);
+		data[1] = speed1.b[0];
+		data[2] = speed1.b[1];
+		data[3] = speed1.b[2];
+		data[4] = speed1.b[3];
 
-		count++;
+		//for (int i = 0; i < 5; i++) {
+		//	Serial.print(data[i]);
+		//	Serial.print(" ");
+		//}
+		//Serial.println("");
+
+
+		switch (revMode2) {
+		case 0:
+			data[5] = 'u';
+			break;
+		case 1:
+			data[5] = 's';
+			break;
+		}
+		data[6] = speed2.b[0];
+		data[7] = speed2.b[1];
+		data[8] = speed2.b[2];
+		data[9] = speed2.b[3];
+
+		switch (revMode3) {
+		case 0:
+			data[10] = 'u';
+			break;
+		case 1:
+			data[10] = 's';
+			break;
+		}
+		data[11] = speed3.b[0];
+		data[12] = speed3.b[1];
+		data[13] = speed3.b[2];
+		data[14] = speed3.b[3];
+
+		sendMsg(data, SERVER_ADDRESS, sizeof(data));
+
+		speed1.f = 0.0;
+		speed2.f = 0.0;
+		speed3.f = 0.0;
+		
 		time = millis();
+		//count++;
+		}
 	}
 }
 
@@ -153,9 +215,17 @@ void chkMsg() {
 	}
 }
 
-void sendMsg(char* data, uint8_t rcvr) {
+void sendMsg(uint8_t* mes, uint8_t rcvr, uint8_t len) {
+	//Serial.print(len);
+	//Serial.print(" ");
+	//for (int i = 0; i < len; i++) {
+	//	Serial.print(mes[i], DEC);
+	//	Serial.print(" ");
+	//}
+	//Serial.println("");
+
 	// Send a reply back to the originator client
-	if (!manager.sendto((uint8_t*)data, strlen(data), rcvr)) {
+	if (!manager.sendto((uint8_t*)mes, len, rcvr)) {
 		Serial.println("sendto failed");
 	}
 	manager.waitPacketSent(); //wichtig!!!
@@ -163,7 +233,11 @@ void sendMsg(char* data, uint8_t rcvr) {
 
 void sendOKMsg() {
 	char* ok = "iok";
-	sendMsg(ok,SERVER_ADDRESS);
+	sendMsg((uint8_t*)ok,SERVER_ADDRESS,strlen(ok));
+}
+
+void sendSpeed(uint8_t revNr) {
+
 }
 
 void parseSrvCmd() {
@@ -223,10 +297,11 @@ void parseSrvCmd() {
 		}
 		else if (msg[1] == 'n' && msg[2] == 'i') {
 			//set send interval
-			uint8_t val[3] = {};
-			val[0] = msg[3];
+			uint8_t val[3];
+			val[0] = msg[3];//todo
 			val[1] = msg[4];
 			val[2] = msg[5];
+			Serial.println(atoi((char*)val));
 			if (atoi((char*)val) < 255) {
 				setEEPROMSendInterval(atoi((char*)val));  // -'0' ist trick um aus ascii-zahl einen int zu machen
 				sendOKMsg();
@@ -235,6 +310,20 @@ void parseSrvCmd() {
 	}
 }
 //###################################################
+void unrecognized(const char *command) {
+	Serial.println("command not understood! try something like...");
+	Serial.println("sna - set node adress: sna [1-255]");
+	Serial.println("ssa - set server adress: ssa [1-255]");
+	Serial.println("cfg - show current config");
+	Serial.println("scn - send command to node: scn [rcv adress] [cmd] - scn 2 ssa3");
+	Serial.println("srd - set divider: srd [1|2|3] [1-255]");
+	Serial.println("srp - set precision: srd [0|1|2|3] - 1 10 100 1000" );
+	Serial.println("srm - set mode: srm [1|2|3] [0|1] - 0 umin 1kmh");
+	Serial.println("srdia - set wheel diameter in cm: srdia [1-255]");
+	Serial.println("sni - set send interval (*100ms): sni [1-255]");
+	Serial.println("snd - set debug mode: snd [0|1]");
+}
+
 void setEEPROMNodeAddress(uint8_t address) {
 	Serial.print("setting node address from ");
 	Serial.print(EEPROM.read(EEPROM_NODE_ADDRESS), DEC);
@@ -288,6 +377,29 @@ void sc_setServerAddress() {
 		return;
 	}
 	setEEPROMServerAddress(address);
+}
+
+void sc_setDebug() {
+	bool d;
+	char *arg;
+	arg = cmd.next();
+	if (arg != NULL) {
+		d = (bool)atoi(arg);    // Converts a char string to an integer
+	}
+	else {
+		Serial.println("snd - debug value is missing! aborting...");
+		return;
+	}
+	if (d == 1) {
+		Serial.println("debug on...");
+		DEBUG = d;
+	} else if (d == 0){
+		Serial.println("debug off...");
+		DEBUG = d;
+	}
+	else {
+		Serial.println("wrong value for debug only 0|1");
+	}
 }
 
 void sc_sndCmdNode() {
@@ -362,6 +474,9 @@ void sc_printCfg() {
 	Serial.print(diam2);
 	Serial.print("|");
 	Serial.println(diam3);
+
+	Serial.print("interval (*100ms): ");
+	Serial.println(SEND_INTERVAL);
 
 }
 
@@ -510,6 +625,7 @@ void setEEPROMRevPrecision(uint8_t revNr, uint8_t prec) {
 		Serial.print(" from ");
 		Serial.print(EEPROM.read(EEPROM_PREC1_ADDRESS), DEC);
 		Serial.print(" to ");
+		if (prec < 0) prec = 0;
 		Serial.println(prec);
 		EEPROM.write(EEPROM_PREC1_ADDRESS, prec);
 		precision1 = pow(10, prec);
@@ -519,6 +635,7 @@ void setEEPROMRevPrecision(uint8_t revNr, uint8_t prec) {
 		Serial.print(" from ");
 		Serial.print(EEPROM.read(EEPROM_PREC2_ADDRESS), DEC);
 		Serial.print(" to ");
+		if (prec < 0) prec = 0;
 		Serial.println(prec);
 		EEPROM.write(EEPROM_PREC2_ADDRESS, prec);
 		precision2 = pow(10, prec);
@@ -528,6 +645,7 @@ void setEEPROMRevPrecision(uint8_t revNr, uint8_t prec) {
 		Serial.print(" from ");
 		Serial.print(EEPROM.read(EEPROM_PREC3_ADDRESS), DEC);
 		Serial.print(" to ");
+		if (prec < 0) prec = 0;
 		Serial.println(prec);
 		EEPROM.write(EEPROM_PREC3_ADDRESS, prec);
 		precision3 = pow(10, prec);
@@ -566,6 +684,7 @@ void setEEPROMRevDivider(uint8_t revNr, uint8_t div) {
 		Serial.print(" from ");
 		Serial.print(EEPROM.read(EEPROM_DIV1_ADDRESS), DEC);
 		Serial.print(" to ");
+		if (div < 1) { div = 1; }
 		Serial.println(div);
 		EEPROM.write(EEPROM_DIV1_ADDRESS, div);
 		divider1 = div;
@@ -575,6 +694,7 @@ void setEEPROMRevDivider(uint8_t revNr, uint8_t div) {
 		Serial.print(" from ");
 		Serial.print(EEPROM.read(EEPROM_DIV2_ADDRESS), DEC);
 		Serial.print(" to ");
+		if (div < 1) { div = 1; }
 		Serial.println(div);
 		EEPROM.write(EEPROM_DIV2_ADDRESS, div);
 		divider2 = div;
@@ -584,6 +704,7 @@ void setEEPROMRevDivider(uint8_t revNr, uint8_t div) {
 		Serial.print(" from ");
 		Serial.print(EEPROM.read(EEPROM_DIV3_ADDRESS), DEC);
 		Serial.print(" to ");
+		if (div < 1) { div = 1; }
 		Serial.println(div);
 		EEPROM.write(EEPROM_DIV3_ADDRESS, div);
 		divider3 = div;
@@ -605,33 +726,37 @@ void sc_setInterval() {
 	}
 	setEEPROMSendInterval(iv);
 }
+//todo
 void setEEPROMSendInterval(uint8_t iv) {
 	Serial.print("setting interval from ");
 	Serial.print(EEPROM.read(EEPROM_SEND_INTERVAL_ADDRESS)*100, DEC);
 	Serial.print(" to ");
 	Serial.println(iv * 100);
+	if (iv < 1) { iv = 1; }
 	SEND_INTERVAL = iv;
 	EEPROM.write(EEPROM_SEND_INTERVAL_ADDRESS, iv);
 	Serial.println("...done");
 
 }
+
 void countRevs1() {
 	revTimeNew1 = millis();
 	revTimeDiff1 = revTimeNew1 - revTimeOld1;
+
 	float s = 0.0;
 	if (revMode1) {
 		revs1 = 1000 * 60 / revTimeDiff1 / divider1;
 		s = revs1 * diam1 *3.142 / 100 * 60; //m pro h
 		if (s > 1000) {
-			speed1 = s / 1000;
+			speed1.f = s / 1000;
 		}
 		else {
-			speed1 = (int)s / precision1* precision1;
+			speed1.f = (int)s / precision1* precision1;
 		}
 	}
 	else {
 		revs1 = 1000 * 60 / revTimeDiff1 / divider1 / precision1 * precision1;
-		speed1 = revs1;
+		speed1.f = revs1;
 	}
 	revTimeOld1 = revTimeNew1;
 }
@@ -644,15 +769,15 @@ void countRevs2() {
 		revs2 = 1000 * 60 / revTimeDiff2 / divider2;
 		s = revs2 * diam2 *3.142 / 100 * 60; //m pro h
 		if (s > 1000) {
-			speed2 = s / 1000;
+			speed2.f = s / 1000;
 		}
 		else {
-			speed2 = (int)s / precision2* precision2;
+			speed2.f = (int)s / precision2* precision2;
 		}
 	}
 	else {
 		revs2 = 1000 * 60 / revTimeDiff2 / divider2 / precision2 * precision2;
-		speed2 = revs2;
+		speed2.f = revs2;
 	}
 	revTimeOld2 = revTimeNew2;
 }
@@ -665,15 +790,15 @@ void countRevs3() {
 		revs3 = 1000 * 60 / revTimeDiff3 / divider3;
 		s = revs3 * diam3 *3.142 / 100 * 60; //m pro h
 		if (s > 1000) {
-			speed3 = s / 1000;
+			speed3.f = s / 1000;
 		}
 		else {
-			speed3 = (int)s / precision3* precision3;
+			speed3.f = (int)s / precision3* precision3;
 		}
 	}
 	else {
 		revs3 = 1000 * 60 / revTimeDiff3 / divider3 / precision3 * precision3;
-		speed3 = revs3;
+		speed3.f = revs3;
 	}
 	revTimeOld3 = revTimeNew3;
 }

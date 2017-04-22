@@ -25,6 +25,7 @@
 #define EEPROM_DIAM2_ADDRESS 12
 #define EEPROM_DIAM3_ADDRESS 13
 #define EEPROM_SEND_INTERVAL_ADDRESS 14
+#define EEPROM_REVNR_EN_ADDRESS 15
 
 bool DEBUG = 0;
 
@@ -39,6 +40,22 @@ uint8_t msg[RH_RF69_MAX_MESSAGE_LEN];
 
 
 uint8_t SEND_INTERVAL = EEPROM.read(EEPROM_SEND_INTERVAL_ADDRESS);
+
+typedef union {
+	struct	{
+		unsigned char bit1 : 1;
+		unsigned char bit2 : 1;
+		unsigned char bit3 : 1;
+		unsigned char bit4 : 1;
+		unsigned char bit5 : 1;
+		unsigned char bit6 : 1;
+		unsigned char bit7 : 1;
+		unsigned char bit8 : 1;
+	}bits;
+	unsigned char revnren;
+}RevEn;
+
+RevEn reven;
 
 unsigned long time = 0;
 
@@ -87,8 +104,10 @@ void setup() {
 	Serial.print("rfm69 sender startup nr: ");
 	Serial.println(NODE_ADDRESS);
 
+	reven.revnren = EEPROM.read(EEPROM_REVNR_EN_ADDRESS);
+
 	//###################################################
-	cmd.setDefaultHandler(unrecognized);
+	cmd.setDefaultHandler(sc_unrecognized);
 	cmd.addCommand("sna", sc_setNodeAddress); //set node address
 	cmd.addCommand("ssa", sc_setServerAddress); //set server address
 	cmd.addCommand("cfg", sc_printCfg); //print the current config
@@ -99,6 +118,7 @@ void setup() {
 	cmd.addCommand("srdia", sc_setRevDiameter);
 	cmd.addCommand("sni", sc_setInterval);
 	cmd.addCommand("snd", sc_setDebug);
+	cmd.addCommand("sre", sc_setRevEnable);
 	//###################################################
 
 	if (!manager.init())
@@ -123,7 +143,7 @@ void setup() {
 uint8_t from;
 float count = 0.0;
 
-uint8_t data[15];
+uint8_t data[6];
 
 void loop() {
 	cmd.readSerial();
@@ -135,58 +155,9 @@ void loop() {
 		}
 	} else {
 	if (millis() - time > 100*SEND_INTERVAL) {
-		switch (revMode1) {
-		case 0:
-			data[0] = 'u';
-			break;
-		case 1:
-			data[0] = 's';
-			break;
-		}
-		//Serial.println(speed1.val);
-		data[1] = speed1.b[0];
-		data[2] = speed1.b[1];
-		data[3] = speed1.b[2];
-		data[4] = speed1.b[3];
-
-		//for (int i = 0; i < 5; i++) {
-		//	Serial.print(data[i]);
-		//	Serial.print(" ");
-		//}
-		//Serial.println("");
-
-
-		switch (revMode2) {
-		case 0:
-			data[5] = 'u';
-			break;
-		case 1:
-			data[5] = 's';
-			break;
-		}
-		data[6] = speed2.b[0];
-		data[7] = speed2.b[1];
-		data[8] = speed2.b[2];
-		data[9] = speed2.b[3];
-
-		switch (revMode3) {
-		case 0:
-			data[10] = 'u';
-			break;
-		case 1:
-			data[10] = 's';
-			break;
-		}
-		data[11] = speed3.b[0];
-		data[12] = speed3.b[1];
-		data[13] = speed3.b[2];
-		data[14] = speed3.b[3];
-
-		sendMsg(data, SERVER_ADDRESS, sizeof(data));
-
-		speed1.f = 0.0;
-		speed2.f = 0.0;
-		speed3.f = 0.0;
+		if (reven.bits.bit1) { sendSpeed(1); };
+		if (reven.bits.bit2) { sendSpeed(2); };
+		if (reven.bits.bit3) { sendSpeed(3); };
 		
 		time = millis();
 		//count++;
@@ -237,7 +208,36 @@ void sendOKMsg() {
 }
 
 void sendSpeed(uint8_t revNr) {
-
+	data[1] = revNr;
+	switch (revNr) {
+	case 1:
+		revMode1 ? data[0] = 's' : data[0] = 'u';
+		data[2] = speed1.b[0];
+		data[3] = speed1.b[1];
+		data[4] = speed1.b[2];
+		data[5] = speed1.b[3];
+		sendMsg(data, SERVER_ADDRESS, sizeof(data));
+		speed1.f = 0.0;
+		break;
+	case 2:
+		revMode2 ? data[0] = 's' : data[0] = 'u';
+		data[2] = speed2.b[0];
+		data[3] = speed2.b[1];
+		data[4] = speed2.b[2];
+		data[5] = speed2.b[3];
+		sendMsg(data, SERVER_ADDRESS, sizeof(data));
+		speed2.f = 0.0;
+		break;
+	case 3:
+		revMode3 ? data[0] = 's' : data[0] = 'u';
+		data[2] = speed3.b[0];
+		data[3] = speed3.b[1];
+		data[4] = speed3.b[2];
+		data[5] = speed3.b[3];
+		sendMsg(data, SERVER_ADDRESS, sizeof(data));
+		speed3.f = 0.0;
+		break;
+	}
 }
 
 void parseSrvCmd() {
@@ -263,7 +263,13 @@ void parseSrvCmd() {
 				setEEPROMRevPrecision(msg[3]-'0', msg[4]-'0');  // -'0' ist trick um aus ascii-zahl einen int zu machen
 				sendOKMsg();
 				
-			} else if (msg[2] == 'm') {
+			}
+			else if (msg[2] == 'e') {
+				// enable revNr
+				setEEPROMRevEnable(msg[3] - '0', msg[4] - '0');  // -'0' ist trick um aus ascii-zahl einen int zu machen
+				sendOKMsg();
+
+			}else if (msg[2] == 'm') {
 				// set revmode
 				setEEPROMRevMode(msg[3] - '0', msg[4] - '0');  // -'0' ist trick um aus ascii-zahl einen int zu machen
 				sendOKMsg();
@@ -310,7 +316,7 @@ void parseSrvCmd() {
 	}
 }
 //###################################################
-void unrecognized(const char *command) {
+void sc_unrecognized(const char *command) {
 	Serial.println("command not understood! try something like...");
 	Serial.println("sna - set node adress: sna [1-255]");
 	Serial.println("ssa - set server adress: ssa [1-255]");
@@ -322,6 +328,7 @@ void unrecognized(const char *command) {
 	Serial.println("srdia - set wheel diameter in cm: srdia [1-255]");
 	Serial.println("sni - set send interval (*100ms): sni [1-255]");
 	Serial.println("snd - set debug mode: snd [0|1]");
+	Serial.println("sre - en|disable revnr: sre [1|2|3] [0|1]");
 }
 
 void setEEPROMNodeAddress(uint8_t address) {
@@ -477,6 +484,23 @@ void sc_printCfg() {
 
 	Serial.print("interval (*100ms): ");
 	Serial.println(SEND_INTERVAL);
+
+	Serial.print("revEn: ");
+	Serial.print(reven.bits.bit8);
+	Serial.print("|");
+	Serial.print(reven.bits.bit7);
+	Serial.print("|");
+	Serial.print(reven.bits.bit6);
+	Serial.print("|");
+	Serial.print(reven.bits.bit5);
+	Serial.print("|");
+	Serial.print(reven.bits.bit4);
+	Serial.print("|");
+	Serial.print(reven.bits.bit3);
+	Serial.print("|");
+	Serial.print(reven.bits.bit2);
+	Serial.print("|");
+	Serial.println(reven.bits.bit1);
 
 }
 
@@ -737,6 +761,64 @@ void setEEPROMSendInterval(uint8_t iv) {
 	EEPROM.write(EEPROM_SEND_INTERVAL_ADDRESS, iv);
 	Serial.println("...done");
 
+}
+
+void sc_setRevEnable() {
+	char *arg;
+	uint16_t rNr;
+	uint16_t val;
+	arg = cmd.next();
+	if (arg != NULL) {
+		rNr = atoi(arg);    // Converts a char string to an integer
+	}
+	else {
+		Serial.println("sre - revNr is missing! aborting...");
+		return;
+	}
+	arg = cmd.next();
+	if (arg != NULL) {
+		val = atoi(arg);    // Converts a char string to an integer
+	}
+	else {
+		Serial.println("sre - val is missing! aborting...");
+		return;
+	}
+	setEEPROMRevEnable(rNr,val);
+}
+void setEEPROMRevEnable(uint8_t revNr, bool val) {
+	Serial.println("setting revnr ");
+	Serial.print(revNr);
+	Serial.print(" to ");
+	Serial.println(val);
+
+	switch (revNr) {
+	case 1:
+		reven.bits.bit1 = val;
+		break;
+	case 2:
+		reven.bits.bit2 = val;
+		break;
+	case 3:
+		reven.bits.bit3 = val;
+		break;
+	case 4:
+		reven.bits.bit4 = val;
+		break;
+	case 5:
+		reven.bits.bit5 = val;
+		break;
+	case 6:
+		reven.bits.bit6 = val;
+		break;
+	case 7:
+		reven.bits.bit7 = val;
+		break;
+	case 8:
+		reven.bits.bit8 = val;
+		break;
+	}
+	EEPROM.write(EEPROM_REVNR_EN_ADDRESS, reven.revnren);
+	Serial.println("...done");
 }
 
 void countRevs1() {
